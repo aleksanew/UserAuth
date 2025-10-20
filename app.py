@@ -16,7 +16,7 @@ app.debug = True
 # Rate limiter
 limiter = Limiter(
     key_func=get_remote_address,
-    storage_uti=os.getenv("RATE_LIMIT_STORAGE", "memory://"),
+    storage_uri=os.getenv("RATE_LIMIT_STORAGE", "memory://"),
     strategy="moving-window",
     default_limits=[],
 )
