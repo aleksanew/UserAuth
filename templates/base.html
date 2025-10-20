@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>{% block title %}Auth Demo{% endblock %}</title>
+  <style>
+    body { font-family: Arial, sans-serif; background:#f7f7fb; padding:30px; }
+    .card { background:#fff; padding:20px; border-radius:8px; box-shadow:0 6px 18px rgba(0,0,0,0.06); max-width:420px; margin:12px auto; }
+    input, button { width:100%; padding:10px; margin:6px 0; border-radius:6px; border:1px solid #ddd; }
+    .muted { color:#666; font-size:0.9rem }
+    a { color:#06c; text-decoration:none }
+    table { width:100%; border-collapse: collapse; }
+    th, td { padding:8px; border-bottom:1px solid #eee; text-align:left; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    {% block content %}{% endblock %}
+  </div>
+</body>
+</html>
