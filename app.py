@@ -1,3 +1,4 @@
+import bcrypt
 from flask import Flask, render_template, request, redirect, url_for, session
 import sqlite3
 import os
@@ -26,12 +27,12 @@ def register():
         username = request.form.get("username", "")
         password = request.form.get("password", "")
 
-        conn = sqlite3.connect(DB_PATH)
-        conn.execute(f"INSERT INTO users (username, password) VALUES ('{username}', '{password}')")
-        conn.commit()
+        # Hash the password
+        hashed = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
 
-        cur = conn.execute("SELECT id, username, password FROM users ORDER BY id DESC LIMIT 1")
-        print("JUST SAVED:", cur.fetchone())
+        conn = sqlite3.connect(DB_PATH)
+        conn.execute("INSERT INTO users (username, password) VALUES (?, ?)", (username, hashed))
+        conn.commit()
         conn.close()
 
         return redirect(url_for("login"))
@@ -43,16 +44,18 @@ def login():
     if request.method == "POST":
         username = request.form.get("username", "")
         password = request.form.get("password", "")
+
         conn = get_db()
-        cur = conn.execute(f"SELECT * FROM users WHERE username = '{username}' AND password = '{password}'")
+        cur = conn.execute("SELECT * FROM users WHERE username = ?", (username,))
         user = cur.fetchone()
         conn.close()
 
-        if user:
+        if user and bcrypt.checkpw(password.encode('utf-8'), user["password"]):
             session["username"] = user["username"]
             return redirect(url_for("dashboard"))
         else:
             return render_template("login.html", error="Invalid credentials")
+
     return render_template("login.html")
 
 @app.route("/dashboard")
