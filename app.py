@@ -13,7 +13,7 @@ import secrets # for secure random state
 
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "verysecuredatabase.db")
-print("USING DB:", DB_PATH)
+#print("USING DB:", DB_PATH)
 
 app = Flask(__name__)
 # Use an environment variable for the secret key in production; fallback to a random key for dev
