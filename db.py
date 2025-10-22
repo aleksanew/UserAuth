@@ -15,7 +15,9 @@ def create_and_populate_db(db_name="verysecuredatabase.db"):
                 username TEXT NOT NULL UNIQUE,
                 password_hash TEXT NOT NULL,
                 created_at TEXT NOT NULL,
-                failed_login_attempts INTEGER NOT NULL DEFAULT 0
+                failed_login_attempts INTEGER NOT NULL DEFAULT 0,
+                totp_secret TEXT, -- NEW
+                totp_enabled INTEGER NOT NULL DEFAULT 0  -- NEW (0=false, 1=true)
             );
         """)
 

@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import time
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
+import pyotp, qrcode, base64, io
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "verysecuredatabase.db")
 print("USING DB:", DB_PATH)
@@ -32,6 +33,19 @@ def get_db():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
+
+def totp_secret() -> str:
+    return pyotp.random_base32()
+
+def totp_uri(username: str, secret: str, issuer: str = "UserAuthApp") -> str:
+    return pyotp.totp.TOTP(secret).provisioning_uri(name=username, issuer_name=issuer)
+
+def qr_data_url(otpauth_uri: str) -> str:
+    img = qrcode.make(otpauth_uri)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+    return f"data:image/png;base64,{b64}"
 
 def ensure_tables():
     with get_db() as conn:
@@ -127,29 +141,63 @@ def index():
 @app.route("/register", methods=["GET", "POST"])
 def register():
     if request.method == "POST":
+        if request.form.get("confirm_2fa") == "1":
+            username = (request.form.get("username") or "").strip()
+            token = (request.form.get("token") or "").strip()
+            if not username or not token:
+                return render_template("register.html", error="Missing 2FA confirmation fields.")
+
+            with get_db() as conn:
+                cur = conn.execute("SELECT totp_secret FROM users WHERE username=?", (username,))
+                row = cur.fetchone()
+                if not row or not row["totp_secret"]:
+                    return render_template("register.html", error="User not found or 2FA not initiated.")
+                totp = pyotp.TOTP(row["totp_secret"])
+                if totp.verify(token, valid_window=1):
+                    conn.execute("UPDATE users SET totp_enabled = 1 WHERE username=?", (username,))
+                    return redirect(url_for("login"))
+                else:
+                    uri = totp_uri(username, row["totp_secret"])
+                    qr_url = qr_data_url(uri)
+                    return render_template(
+                        "register.html",
+                        username=username,
+                        qr_data_url=qr_url,
+                        totop_secret=row["totp_secret"],
+                        error="Invalid 2FA code. Try again."
+                    )
+
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
 
         if not username or not password:
-            return render_template("register.html", error="Username and password are required")
+            return render_template("register.html", error="Missing username or password.")
 
-        conn = get_db()
-        cur = conn.execute("SELECT id FROM users WHERE username = ?", (username,))
-        if cur.fetchone():
-            conn.close()
-            return render_template("register.html", error="Username already taken")
-        rounds = int(os.environ.get("BCRYPT_ROUNDS", "12"))
-        password_hash = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt(rounds)).decode('utf-8')
-        created_at = datetime.now(timezone.utc).isoformat()
+        with get_db() as conn:
+            cur = conn.execute("SELECT id FROM users WHERE username=?", (username,))
+            if cur.fetchone():
+                return render_template("register.html", error="Username already in use.")
 
-        conn.execute(
-            "INSERT INTO users (username, password_hash, created_at) VALUES (?, ?, ?)",
-            (username, password_hash, created_at),
-        )
-        conn.commit()
-        conn.close()
+            rounds = int(os.environ.get("BCRYPT_ROUNDS", "12"))
+            salt = bcrypt.gensalt(rounds)  # bytes
+            password_hash = bcrypt.hashpw(password.encode("utf-8"), salt).decode("utf-8")
+            created_at = datetime.now(timezone.utc).isoformat()
 
-        return redirect(url_for("login"))
+            secret = totp_secret()
+            conn.execute(
+                "INSERT INTO users (username, password_hash, created_at, totp_secret, totp_enabled) VALUES (?, ?, ?, ?, 0)",
+                (username, password_hash, created_at, secret),
+            )
+
+            uri = totp_uri(username, secret)
+            qr_url = qr_data_url(uri)
+            return render_template(
+                "register.html",
+                username=username,
+                qr_data_url=qr_url,
+                totp_secret=secret,
+            )
+
     return render_template("register.html")
 
 def username_key():
@@ -163,6 +211,7 @@ def login():
     if request.method == "POST":
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
+        token = (request.form.get("token") or "").strip()
         ip = client_ip()
         # Unified login flow: throttle checks + bcrypt verify
         with get_db() as conn:
@@ -176,25 +225,35 @@ def login():
                 ), 429
 
             # Fetch user record
-            cur = conn.execute("SELECT id, username, password_hash FROM users WHERE username = ?", (username,))
+            cur = conn.execute("SELECT id, username, password_hash, totp_enabled, totp_secret FROM users WHERE username = ?", (username,))
             user = cur.fetchone()
 
-            ok = bool(user) and bcrypt.checkpw(password.encode("utf-8"), user["password_hash"].encode("utf-8"))
-
-            if ok:
-                # Successful auth: reset counters and clear throttle
-                conn.execute("UPDATE users SET failed_login_attempts = 0 WHERE id = ?", (user["id"],))
-                conn.commit()
-                clear_throttle(conn, username, ip)
-                session["username"] = user["username"]
-                return redirect(url_for("dashboard"))
-            else:
-                # Record failed attempt (both throttle table and per-user counter)
+            ok_pw = bool(user) and bcrypt.checkpw(password.encode("utf-8"), user["password_hash"].encode("utf-8"))
+            if not ok_pw:
                 failed_attempts(conn, username, ip)
                 if user:
-                    conn.execute("UPDATE users SET failed_login_attempts = failed_login_attempts + 1 WHERE id = ?", (user["id"],))
+                    conn.execute("UPDATE users SET failed_login_attempts = failed_login_attempts + 1 WHERE id = ?",
+                                 (user["id"],))
                     conn.commit()
                 return render_template("login.html", error="Invalid credentials"), 401
+
+            # If the user has 2FA enabled, require a valid TOTP token
+            if user["totp_enabled"]:
+                if not token:
+                    # Do not reveal whether username exists or has 2FA; just ask for code
+                    return render_template("login.html", error="Enter your 6-digit 2FA code."), 401
+                totp = pyotp.TOTP(user["totp_secret"])
+                if not totp.verify(token, valid_window=1):
+                    failed_attempts(conn, username, ip)
+                    return render_template("login.html", error="Invalid 2FA code."), 401
+
+            # Success
+            conn.execute("UPDATE users SET failed_login_attempts = 0 WHERE id = ?", (user["id"],))
+            conn.commit()
+            clear_throttle(conn, username, ip)
+            session["username"] = user["username"]
+            return redirect(url_for("dashboard"))
+
     return render_template("login.html")
 
 
