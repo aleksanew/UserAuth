@@ -54,8 +54,10 @@ def ensure_tables():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT NOT NULL UNIQUE,
                 password_hash TEXT NOT NULL,
-                created_at TEXT,
-                failed_login_attempts INTEGER NOT NULL DEFAULT 0
+                created_at TEXT NOT NULL,
+                failed_login_attempts INTEGER NOT NULL DEFAULT 0,
+                totp_secret TEXT, -- NEW
+                totp_enabled INTEGER NOT NULL DEFAULT 0  -- NEW (0=false, 1=true)
             )
         """)
 
@@ -174,7 +176,7 @@ def register():
             return render_template("register.html", error="Missing username or password.")
 
         with get_db() as conn:
-            cur = conn.execute("SELECT id FROM users WHERE username=?", (username,))
+            cur = conn.execute("SELECT id FROM users WHERE username=?", (username,)) # Rare edge case here where duplicate user name registration to db is technically possible
             if cur.fetchone():
                 return render_template("register.html", error="Username already in use.")
 
