@@ -12,6 +12,16 @@
     a { color:#06c; text-decoration:none }
     table { width:100%; border-collapse: collapse; }
     th, td { padding:8px; border-bottom:1px solid #eee; text-align:left; }
+
+    /* Social / provider button styles */
+    .social-btn { display:inline-flex; align-items:center; gap:10px; padding:8px 12px; border-radius:6px; border:1px solid #dfe3e8; background:#fff; color:#222; text-decoration:none; font-weight:600; box-shadow:0 2px 6px rgba(0,0,0,0.04); }
+    .social-btn:hover { box-shadow:0 6px 18px rgba(0,0,0,0.06); }
+  .social-btn .pill { display:inline-flex; align-items:center; justify-content:center; width:28px; height:28px; border-radius:4px; background:#fff; border:1px solid #eee; font-size:0.85rem; overflow:hidden; }
+  /* google-pill will show an inline SVG; don't hide its colors */
+  .google-pill { background: #fff; padding:2px; }
+  .google-pill svg { width:20px; height:20px; display:block; }
+    /* small helper to keep the provider area from stretching full width */
+    .providers { margin:10px 0; }
   </style>
 </head>
 <body>

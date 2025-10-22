@@ -3,3 +3,4 @@ bcrypt>=5.0.0
 Flask-Limiter>=4.0.0
 pyotp
 qrcode[pil]
+requests>=2.32.5

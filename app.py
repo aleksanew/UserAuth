@@ -7,6 +7,10 @@ import time
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 import pyotp, qrcode, base64, io
+import requests # for HTTP request to providers
+from urllib.parse import urlencode # For query strings
+import secrets # for secure random state
+
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "verysecuredatabase.db")
 print("USING DB:", DB_PATH)
@@ -15,6 +19,19 @@ app = Flask(__name__)
 # Use an environment variable for the secret key in production; fallback to a random key for dev
 app.secret_key = os.environ.get("FLASK_SECRET_KEY") or os.urandom(24)
 app.debug = True
+app.config['OAUTH2_PROVIDERS'] = {
+    'google': {
+        'client_id': os.environ.get("GOOGLE_CLIENT_ID"),
+        'client_secret': os.environ.get("GOOGLE_CLIENT_SECRET"),
+        'authorize_url': 'https://accounts.google.com/o/oauth2/auth',
+        'token_url': 'https://oauth2.googleapis.com/token',
+        'userinfo': {
+            'url': 'https://www.googleapis.com/oauth2/v3/userinfo',
+            'email': lambda json: json['email'],
+        },
+        'scopes': ['https://www.googleapis.com/auth/userinfo.email'],
+    }
+}
 
 # Rate limiter
 limiter = Limiter(
@@ -51,9 +68,10 @@ def ensure_tables():
     with get_db() as conn:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id INTEGER PRIMARY KEY,
                 username TEXT NOT NULL UNIQUE,
-                password_hash TEXT NOT NULL,
+                email TEXT UNIQUE,
+                password_hash TEXT,
                 created_at TEXT NOT NULL,
                 failed_login_attempts INTEGER NOT NULL DEFAULT 0,
                 totp_secret TEXT, -- NEW
@@ -138,6 +156,94 @@ def index():
     if session.get("username"):
         return redirect(url_for("dashboard"))
     return redirect(url_for("login"))
+
+@app.route("/authorize/<provider>")
+def authorize(provider):
+    if 'username' in session: # Prevent if already logged in
+        return redirect(url_for("dashboard"))
+    
+    provider_data = app.config['OAUTH2_PROVIDERS'].get(provider)
+    if provider_data is None:
+        return "Provider not supported", 404
+    
+    session['oauth2_state'] = secrets.token_urlsafe(16)
+
+    qs = urlencode({
+        'client_id': provider_data['client_id'],
+        'redirect_uri': url_for('oauth2_callback', provider=provider, _external=True),
+        'response_type': 'code',
+        'scope': ' '.join(provider_data['scopes']),
+        'state': session['oauth2_state'],
+    })
+    #print(provider_data['authorize_url'] + '?' + qs) # DEBUG PRINT
+    return redirect(provider_data['authorize_url'] + '?' + qs)
+
+@app.route("/callback/<provider>")
+def oauth2_callback(provider):
+    if 'username' in session:
+        return redirect(url_for("dashboard"))
+    
+    provider_data = app.config['OAUTH2_PROVIDERS'].get(provider)
+    if provider_data is None:
+        return "Provider not supported", 404
+    
+    if 'error' in request.args:
+        return f"Error from {provider}: " + request.args['error'], 400
+    
+    # Validate state to prevent CSRF
+    if request.args.get('state') != session.get('oauth2_state'):
+        return "Invalid state parameter", 401
+    
+    code = request.args.get('code')
+    if not code:
+        return "Missing code parameter", 401
+    
+    # Exchange code for token
+    response = requests.post(provider_data['token_url'], data={
+        'client_id': provider_data['client_id'],
+        'client_secret': provider_data['client_secret'],
+        'code': code,
+        'grant_type': 'authorization_code',
+        'redirect_uri': url_for('oauth2_callback', provider=provider, _external=True),
+    }, headers={'Accept': 'application/json'})
+
+    if response.status_code != 200:
+        return "Token exchange failed", 401
+    
+    oauth2_token = response.json().get('access_token')
+    if not oauth2_token:
+        return "Missing access token", 401
+    
+    # Fetch user info
+    response = requests.get(provider_data['userinfo']['url'], headers={
+        'Authorization': 'Bearer ' + oauth2_token,
+        'Accept': 'application/json',
+    })
+
+    if response.status_code != 200:
+        return "Failed to fetch user info", 401
+    
+    email = provider_data['userinfo']['email'](response.json())
+
+    # Find or create user in DB (no password)
+    with get_db() as conn:
+        cur = conn.execute("SELECT username FROM users WHERE email=?", (email,))
+        user = cur.fetchone()
+
+        if user is None:
+            # Derive username from email, create user
+            username = email.split('@')[0]
+            created_at = datetime.now(timezone.utc).isoformat()
+            conn.execute(
+                "INSERT INTO users (username, email, password_hash, created_at, totp_enabled) VALUES (?, ?, NULL, ?, 0)",
+                (username, email, created_at),
+            )
+            conn.commit()
+            session['username'] = username
+        else:
+            session['username'] = user['username']
+        
+    return redirect(url_for("dashboard"))
 
 
 @app.route("/register", methods=["GET", "POST"])

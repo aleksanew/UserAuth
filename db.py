@@ -13,7 +13,8 @@ def create_and_populate_db(db_name="verysecuredatabase.db"):
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY,
                 username TEXT NOT NULL UNIQUE,
-                password_hash TEXT NOT NULL,
+                email TEXT UNIQUE, -- For OAuth2 user details
+                password_hash TEXT, -- nullable for OAuth users
                 created_at TEXT NOT NULL,
                 failed_login_attempts INTEGER NOT NULL DEFAULT 0,
                 totp_secret TEXT, -- NEW

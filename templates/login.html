@@ -14,6 +14,20 @@
          It's okay to always show it; the server decides whether to verify it. -->
     <input name="token" inputmode="numeric" pattern="[0-9]*" placeholder="6-digit 2FA code (if enabled)">
     <button type="submit">Login</button>
+    <div class="providers">
+      <a class="social-btn" href="{{ url_for('authorize', provider='google') }}" aria-label="Sign in with Google">
+        <span class="pill google-pill" aria-hidden="true">
+          <!-- Inline Google G logo (kept small and simple) -->
+          <svg viewBox="0 0 533.5 544.3" xmlns="http://www.w3.org/2000/svg" role="img" aria-hidden="true">
+            <path fill="#4285F4" d="M533.5 278.4c0-18.4-1.6-36.1-4.6-53.1H272v100.6h147.1c-6.3 34-25 62.8-53.4 82v68.2h86.3c50.4-46.5 81.5-114.5 81.5-197.7z"/>
+            <path fill="#34A853" d="M272 544.3c72.6 0 133.6-24 178.1-65.3l-86.3-68.2c-24.1 16.2-55 25.8-91.8 25.8-70.6 0-130.4-47.6-151.8-111.6H33.9v70.1C78.3 490.9 168.2 544.3 272 544.3z"/>
+            <path fill="#FBBC05" d="M120.2 325.1c-10.9-32.6-10.9-67.8 0-100.4v-70.1H33.9c-39 76.9-39 167.5 0 244.4l86.3-73.9z"/>
+            <path fill="#EA4335" d="M272 107.7c38.9-.6 75 14.2 102.9 41.9l77.1-77.1C405.7 24 344.8 0 272 0 168.2 0 78.3 53.4 33.9 132.2l86.3 70.1C141.6 155.3 201.4 107.7 272 107.7z"/>
+          </svg>
+        </span>
+        <span>Sign in with Google</span>
+      </a>
+    </div>
   </form>
 
   <p class="muted">No account? <a href="{{ url_for('register') }}">Register here</a></p>
